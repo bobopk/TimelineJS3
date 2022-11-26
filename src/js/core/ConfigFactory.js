@@ -72,8 +72,8 @@ function extractEventFromCSVObject(orig_row) {
             thumbnail: row['Media Thumbnail'] || ''
         },
         text: {
-            headline: row['Headline'] || '',
-            text: row['Text'] || ''
+            headline: row['Headline'] || row['Title'] || '',
+            text: row['Text'] || row['Description'] || ''
         },
         display_date: row['Display Date'] || '', // only in v3 but no problem
         group: row['Group'] || row['Tag'] || '', // small diff between v1 and v3 sheets
@@ -87,13 +87,15 @@ function extractEventFromCSVObject(orig_row) {
         }
     })
 
-    if (Object.keys(row).includes('Start Date') || Object.keys(row).includes('End Date')) {
+    if (Object.keys(row).includes('Start') || Object.keys(row).includes('End')) {
         // V1 date handling
-        if (row['Start Date']) {
-            d.start_date = parseDate(row['Start Date'])
+        if (row['Start']) {
+	    console.log('PARSING START')
+            d.start_date = parseDate(row['Start'])
+	    console.log(d.start_date)
         }
-        if (row['End Date']) {
-            d.end_date = parseDate(row['End Date'])
+        if (row['End']) {
+            d.end_date = parseDate(row['End'])
         }
     } else {
         // V3 date handling
@@ -141,6 +143,53 @@ function extractEventFromCSVObject(orig_row) {
     }
 
     return d
+}
+
+/**
+ * Given a Google Sheets URL (or mere document ID), read the data and return
+ * a Timeline JSON file suitable for instantiating a timeline.
+ * 
+ * @param {string} url 
+ */
+export async function readCSV(url) {
+
+    let rows = []
+
+    let error = null;
+
+    await fetchCSV({
+        url: url,
+    }).then(d => {
+        rows = d;
+    }).catch(error_json => {
+        if (error_json.proxy_err_code == 'response_not_csv') {
+            throw new TLError('Timeline could not read the data for your timeline. Make sure you have published it to the web.')
+        }
+        throw new TLError(error_json.message)
+    })
+
+    let timeline_config = { 'events': [], 'errors': [], 'warnings': [], 'eras': [] }
+
+    rows.forEach((row, i) => {
+        try {
+            if (!isEmptyObject(row)) {
+                let event = extractEventFromCSVObject(row)
+                handleRow(event, timeline_config)
+            }
+        } catch (e) {
+            if (e.constructor == TLError) {
+                timeline_config.errors.push(e);
+            } else {
+                if (e.message) {
+                    e = e.message;
+                }
+                let label = row['Headline'] || i
+                timeline_config.errors.push(e + `[${label}]`);
+            }
+        }
+    });
+
+    return timeline_config
 }
 
 /**
@@ -227,6 +276,22 @@ var buildGoogleFeedURL = function(key, api_version) {
     }
 }
 
+async function jsonFromURL(url, options) {
+
+    // TODO: Check if a proxy is really necessary
+    // if (!options['sheets_proxy']) {
+    //     throw new TLError("Proxy option must be set to read data from Google")
+    // }
+
+    var timeline_json = await readCSV(url);
+
+    if (timeline_json) {
+        return timeline_json;
+    }
+}
+
+
+
 async function jsonFromGoogleURL(google_url, options) {
 
     // TODO: Check if a proxy is really necessary
@@ -270,11 +335,12 @@ export async function makeConfig(url, callback_or_options) {
 
     var tc,
         json,
-        key = parseGoogleSpreadsheetURL(url);
+        key = true//parseGoogleSpreadsheetURL(url);
 
     if (key) {
         try {
-            json = await jsonFromGoogleURL(url, options);
+            json = await jsonFromURL(url, options);
+            console.log(json)
         } catch (e) {
             // even with an error, we make 
             // a TimelineConfig because it's 
