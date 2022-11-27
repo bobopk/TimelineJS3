@@ -90,9 +90,7 @@ function extractEventFromCSVObject(orig_row) {
     if (Object.keys(row).includes('Start') || Object.keys(row).includes('End')) {
         // V1 date handling
         if (row['Start']) {
-	    console.log('PARSING START')
             d.start_date = parseDate(row['Start'])
-	    console.log(d.start_date)
         }
         if (row['End']) {
             d.end_date = parseDate(row['End'])
